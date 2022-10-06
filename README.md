@@ -1,4 +1,4 @@
-**Dataclass To Database -> A very simple abstraction layer to make life somewhat easier**
+**Dataclass To Database -> A very simple abstraction layer to make using SQL somewhat easier**
 
 
 My goal with that project is to make life a little bit easier by creating an abstraction layer that simplifes the writing of basic SQL queries- and does that for you!
