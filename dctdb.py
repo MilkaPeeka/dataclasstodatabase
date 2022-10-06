@@ -59,10 +59,14 @@ class dctdb:
         cur.execute("SELECT * FROM " + self.dc.__name__)
 
         rows = cur.fetchall()
+        toRet = []
         for row in rows:
-            for item in row:
-                print(type(item))
-        return [self.dc(*row[1:]) for row in rows]
+            args = []
+            for item, item_type in zip(row[1:], [field.type for field in fields(self.dc)]):
+                args.append(item_type(item))
+            toRet.append(self.dc(*args))
+
+        return toRet
 
     def update(self, instance_of_dc, find_by_field_name):
         UPDATE_COMMAND = "UPDATE " +self.dc.__name__ + " SET "
