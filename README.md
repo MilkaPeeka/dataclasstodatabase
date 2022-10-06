@@ -27,7 +27,7 @@ Basically, it takes a dataclass and automatically takes care of inserting, updat
 1. Currently only the current types are supported: int, boolean, bytes, str
 2. Automatically creating a table of a dataclass
 3. Insert objects of said dataclass
-4. Fetch all objects of said dataclass from database
+4. Fetch and recreate all objects of said dataclass from database, while maintaining the original value types
 5. Update objects by using a specific key from the user
 6. Delete objects.
 
