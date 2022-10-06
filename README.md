@@ -44,3 +44,4 @@ and probably has many issues. It is also not complete in a sense that it support
 1. Checking that the class we got is an actual dataclass
 2. Maybe refactoring the code a little bit so it is more readable
 3. Not a feature, but I hope I could learn PEP8 and implement its principals into the project.
+4. Adding support for dates
