@@ -1,7 +1,7 @@
 import sqlite3
 from dataclasses import fields, asdict
 import builtins
-from typing import Type, Any
+from typing import Type, Any, Tuple, List
 
 
 def _create_connection(db_filename):
@@ -9,15 +9,23 @@ def _create_connection(db_filename):
 
 
 class dctodb:
-    def __init__(self, dc: Type[Any], db_filename: str):
+    def __init__(self, dc: Type[Any], fields_to_ignore: List[Tuple[str, Any]], db_filename: str):
         self.dc: Type[Any] = dc
         self.db_filename: str = db_filename
+        self.fields_to_ignore = fields_to_ignore  # each tuple will contain field name and default value when builidng
+        # from table
+
+        self.field_names_to_ignore = [field_tuple[0] for field_tuple in self.fields_to_ignore]
+
         self.create_table()
 
     def create_table(self):
         command = f"CREATE TABLE IF NOT EXISTS {self.dc.__name__} (id integer PRIMARY KEY AUTOINCREMENT, "
 
         for field in fields(self.dc):
+            if self.fields_to_ignore and field.name in self.field_names_to_ignore:
+                continue
+
             match field.type:
                 case builtins.int:
                     command += f"{field.name} integer, "
@@ -42,13 +50,22 @@ class dctodb:
         conn.close()
 
     def insert(self, *instances_of_dc):
-        var_names = [field.name for field in fields(instances_of_dc[0])]
+        var_names = [field.name for field in fields(instances_of_dc[0]) if field.name not in self.field_names_to_ignore]
         command = f"INSERT INTO {self.dc.__name__} ({','.join(var_names)}) VALUES ({'?,' * len(var_names)}"
         command = command[:-1]  # strip ','
         command += ")"
 
-        val_list = [tuple(asdict(instance).values()) for instance in instances_of_dc]
+        # each item in val list will be an item to insert
+        val_list = []
+        for instance in instances_of_dc:
+            current_list = []
+            for key, val in asdict(instance).items():
+                if key not in self.field_names_to_ignore:
+                    current_list.append(val)
 
+            val_list.append(tuple(current_list))
+
+        print(val_list)
         conn = _create_connection(self.db_filename)
         cur = conn.cursor()
         cur.executemany(command, val_list)
@@ -67,9 +84,18 @@ class dctodb:
 
         for row in rows:
             row = row[1:]  # popping the id - it is not necessary
-            args = (
-                field.type(col) for field, col in zip(fields(self.dc), row)
-            )  # initiating the args with their right type
+            args = []
+            fields_to_ignore_i = 0
+            col = 0
+            for field in fields(self.dc):
+                # we will need to know if field is in fields_to_ignore. if not than it is the current col
+                if fields_to_ignore_i < len(self.field_names_to_ignore) and self.field_names_to_ignore[fields_to_ignore_i] == field.name:
+                    args.append(self.fields_to_ignore[fields_to_ignore_i][1])  # appending the value to ignore
+                    fields_to_ignore_i += 1
+                else:
+                    args.append(field.type(row[col]))
+                    col += 1
+            args = tuple(args)
             fetched.append(self.dc(*args))
 
         return fetched
