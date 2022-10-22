@@ -9,6 +9,14 @@ def _create_connection(db_filename):
 
 
 class dctodb:
+    @classmethod
+    def remove_col_from_table(cls, db_filename: str, dc: Type[Any], field_to_remove: str):
+        command = f"ALTER TABLE {dc.__name__} DROP COLUMN {field_to_remove}"
+        conn = _create_connection(db_filename)
+        cur = conn.cursor()
+        cur.execute(command)
+        conn.close()
+        
     def __init__(self, dc: Type[Any], fields_to_ignore: List[Tuple[str, Any]], db_filename: str):
         self.dc: Type[Any] = dc
         self.db_filename: str = db_filename
