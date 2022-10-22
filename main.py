@@ -7,18 +7,22 @@ class Test:
     name: str
     age: int
     is_adult: bool
-
+@dataclass
+class Client:
+    pass
 
 if __name__ == "__main__":
-    uri = "test.db"
-    test_db = dctodb(Test, [("age", 69)], uri)
-    test_obj3 = Test("Daniel", 19, True)
-
-    test_db.insert(test_obj3)
-
-    # now db contains all three objects
-    pr = test_db.fetch_all()
-    print(pr)
+    uri = "torrents_and_clients.db"
+    dctodb.remove_col_from_table(uri, Client, "available_download")
+    dctodb.remove_col_from_table(uri, Client, "available_upload")
+    # test_db = dctodb(Test, [("age", 69)], uri)
+    # test_obj3 = Test("Daniel", 19, True)
+    #
+    # test_db.insert(test_obj3)
+    #
+    # # now db contains all three objects
+    # pr = test_db.fetch_all()
+    # print(pr)
     # will contain a list of objects
     #
     # test_db.delete(test_obj)

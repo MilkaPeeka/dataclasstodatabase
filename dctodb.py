@@ -1,7 +1,7 @@
 import sqlite3
 from dataclasses import fields, asdict
 import builtins
-from typing import Type, Any, Tuple, List
+from typing import Type, Any
 
 
 def _create_connection(db_filename):
@@ -9,23 +9,22 @@ def _create_connection(db_filename):
 
 
 class dctodb:
-    def __init__(self, dc: Type[Any], fields_to_ignore: List[Tuple[str, Any]], db_filename: str):
+    @classmethod
+    def remove_col_from_table(cls, db_filename: str, dc: Type[Any], field_to_remove: str):
+        command = f"ALTER TABLE {dc.__name__} DROP COLUMN {field_to_remove}"
+        conn = _create_connection(db_filename)
+        cur = conn.cursor()
+        cur.execute(command)
+        conn.close()
+    def __init__(self, dc: Type[Any], db_filename: str):
         self.dc: Type[Any] = dc
         self.db_filename: str = db_filename
-        self.fields_to_ignore = fields_to_ignore  # each tuple will contain field name and default value when builidng
-        # from table
-
-        self.field_names_to_ignore = [field_tuple[0] for field_tuple in self.fields_to_ignore]
-
         self.create_table()
 
     def create_table(self):
         command = f"CREATE TABLE IF NOT EXISTS {self.dc.__name__} (id integer PRIMARY KEY AUTOINCREMENT, "
 
         for field in fields(self.dc):
-            if self.fields_to_ignore and field.name in self.field_names_to_ignore:
-                continue
-
             match field.type:
                 case builtins.int:
                     command += f"{field.name} integer, "
@@ -50,22 +49,13 @@ class dctodb:
         conn.close()
 
     def insert(self, *instances_of_dc):
-        var_names = [field.name for field in fields(instances_of_dc[0]) if field.name not in self.field_names_to_ignore]
+        var_names = [field.name for field in fields(self.dc)]
         command = f"INSERT INTO {self.dc.__name__} ({','.join(var_names)}) VALUES ({'?,' * len(var_names)}"
         command = command[:-1]  # strip ','
         command += ")"
 
-        # each item in val list will be an item to insert
-        val_list = []
-        for instance in instances_of_dc:
-            current_list = []
-            for key, val in asdict(instance).items():
-                if key not in self.field_names_to_ignore:
-                    current_list.append(val)
+        val_list = [tuple(getattr(instance, var_name) for var_name in var_names) for instance in instances_of_dc]
 
-            val_list.append(tuple(current_list))
-
-        print(val_list)
         conn = _create_connection(self.db_filename)
         cur = conn.cursor()
         cur.executemany(command, val_list)
@@ -84,24 +74,15 @@ class dctodb:
 
         for row in rows:
             row = row[1:]  # popping the id - it is not necessary
-            args = []
-            fields_to_ignore_i = 0
-            col = 0
-            for field in fields(self.dc):
-                # we will need to know if field is in fields_to_ignore. if not than it is the current col
-                if fields_to_ignore_i < len(self.field_names_to_ignore) and self.field_names_to_ignore[fields_to_ignore_i] == field.name:
-                    args.append(self.fields_to_ignore[fields_to_ignore_i][1])  # appending the value to ignore
-                    fields_to_ignore_i += 1
-                else:
-                    args.append(field.type(row[col]))
-                    col += 1
-            args = tuple(args)
+            args = (
+                field.type(col) for field, col in zip(fields(self.dc), row)
+            )  # initiating the args with their right type
             fetched.append(self.dc(*args))
 
         return fetched
 
     def update(self, find_by_field, *instances_of_dc):
-        var_names = [field.name for field in fields(instances_of_dc[0])]
+        var_names = [field.name for field in fields(self.dc)]
         command = f"UPDATE {self.dc.__name__} SET {''.join(f'{name} = ?,' for name in var_names)}"
         command = command[:-1]  # remove ','
 
@@ -110,7 +91,7 @@ class dctodb:
         # arg_list contains a tuple of values of all objects data to update COMBINED with the key
         arg_list = []
         for instance in instances_of_dc:
-            vals = tuple(getattr(instance, field.name) for field in fields(instance))
+            vals = tuple(getattr(instance, field.name) for field in fields(self.dc))
             find_by = (getattr(instance, find_by_field),)
 
             arg_list.append(vals + find_by)
@@ -122,12 +103,12 @@ class dctodb:
         conn.close()
 
     def delete(self, *instances_of_dc):
-        var_names = [field.name for field in fields(instances_of_dc[0])]
+        var_names = [field.name for field in fields(self.dc)]
         command = f"DELETE FROM {self.dc.__name__} WHERE {''.join(f'{name} = ? AND ' for name in var_names)}"
         command = command[:-4]  # remove '? AND' from query
 
         # a list of the tuples containing the value of all objects we want to remove
-        val_list = [tuple(asdict(instance).values()) for instance in instances_of_dc]
+        val_list = [tuple(getattr(instance, var_name) for var_name in var_names) for instance in instances_of_dc]
         conn = _create_connection(self.db_filename)
         c = conn.cursor()
         c.executemany(command, val_list)
