@@ -1,7 +1,8 @@
 import sqlite3
-from dataclasses import fields, asdict
+from dataclasses import fields
 import builtins
 from typing import Type, Any
+import datetime
 
 
 def _create_connection(db_filename):
@@ -16,6 +17,7 @@ class dctodb:
         cur = conn.cursor()
         cur.execute(command)
         conn.close()
+
     def __init__(self, dc: Type[Any], db_filename: str):
         self.dc: Type[Any] = dc
         self.db_filename: str = db_filename
@@ -37,6 +39,12 @@ class dctodb:
 
                 case builtins.bytes:
                     command += f"{field.name} binary, "
+
+                case datetime.datetime:
+                    command += f"{field.name} smalldatetime, "
+
+                case builtins.float:
+                    command += f"{field.name} float, "
 
                 case _:
                     raise Exception(f"unsupported data type: {field.type}")
@@ -74,9 +82,17 @@ class dctodb:
 
         for row in rows:
             row = row[1:]  # popping the id - it is not necessary
-            args = (
-                field.type(col) for field, col in zip(fields(self.dc), row)
-            )  # initiating the args with their right type
+            args = []
+
+            for field, col in zip(fields(self.dc), row):
+                if field.type == datetime.datetime:
+                    col = col.split('.')[0]
+                    col = datetime.datetime.strptime(col, '%Y-%m-%d %H:%M:%S')
+                else:
+                    col = field.type(col)
+
+                args.append(col)
+
             fetched.append(self.dc(*args))
 
         return fetched
