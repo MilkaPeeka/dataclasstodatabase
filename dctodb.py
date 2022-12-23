@@ -10,9 +10,9 @@ def _create_connection(db_filename):
 
 
 class dctodb:
-    def create_sub_table(self):
+    def _create_sub_table(self, dcs_in_class):
             # we will iterate over each item in dcs we have and create a table accordingly, attaching our id
-            for dc_in_class in self.dcs_in_class:
+            for dc_in_class in dcs_in_class:
                 # we will need to create a table to each, with extra column that is the id of self.
                 self.dc_in_class_mappings[dc_in_class] = dctodb(dc_in_class, self.db_filename, None, {self.dc.__name__ + "index": int})
 
@@ -24,7 +24,7 @@ class dctodb:
         self.extra_columns = extra_columns # won't be returned inside an object but in a dict next to the object
         if dcs_in_class:
             self.dc_in_class_mappings = dict()
-            self.create_sub_table()
+            self._create_sub_table(dcs_in_class)
 
         self.create_table()
 
@@ -55,6 +55,8 @@ class dctodb:
                     command += f"{field.name} float, "
 
                 case _:
+                    if field.type in self.dc_in_class_mappings:
+                        continue
                     raise Exception(f"unsupported data type: {field.type}")
 
 

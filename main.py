@@ -17,14 +17,12 @@ class Test:
 
 
 if __name__ == "__main__":
-    client_db = dctodb(Client, "client.db", None, {"nameindex": str})
-    client = Client("torrentdbclient", 1)
+    # client_db = dctodb(Client, "client.db", None, {"nameindex": str})
+    # client = Client("torrentdbclient", 1)
 
-    client_db.insert((client, {"nameindex":"yuvalush"}))
+    # client_db.insert((client, {"nameindex":"yuvalush"}))
 
-
-    print(client_db.fetch_all())
-    #test_db = dctodb(Test, "test_db.db", [Client])
+    test_db = dctodb(Test, "test_db.db", [Client])
 
     # test_db = dctodb(Test, [("age", 69)], uri)
     # test_obj3 = Test("Daniel", 19, True)
