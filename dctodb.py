@@ -20,12 +20,12 @@ class dctodb:
     def __init__(self, dc: Type[Any], db_filename: str, dcs_in_class: List[Type[Any]] = None, extra_columns: Dict[str, Any] = None):
         self.dc: Type[Any] = dc
         self.db_filename: str = db_filename
-        # self.dc_in_class_mappings = None
-        # if dcs_in_class:
-        #     self.dc_in_class_mappings = dict()
-        #     self.create_sub_table()
+        self.dc_in_class_mappings = None
+        self.extra_columns = extra_columns # won't be returned inside an object but in a dict next to the object
+        if dcs_in_class:
+            self.dc_in_class_mappings = dict()
+            self.create_sub_table()
 
-        # print(self.dc_in_class_mappings)
         self.create_table()
 
     def create_table(self):
@@ -55,27 +55,59 @@ class dctodb:
                     command += f"{field.name} float, "
 
                 case _:
-                    # here we will match all classes
-                    # if field.type == self.dc_in_class[0]:
-                    #     print ('hey my name is kimkwest')
-                    # else:
                     raise Exception(f"unsupported data type: {field.type}")
+
+
+        if self.extra_columns:
+            for col_name, col_type in self.extra_columns.items():
+                match col_type:
+                    case builtins.int:
+                        command += f"{col_name} integer, "
+
+                    case builtins.str:
+                        command += f"{col_name} text, "
+
+                    case builtins.bool:
+                        command += f"{col_name} boolean, "
+
+                    case builtins.bytes:
+                        command += f"{col_name} binary, "
+
+                    case datetime.datetime:
+                        command += f"{col_name} smalldatetime, "
+
+                    case builtins.float:
+                        command += f"{col_name} float, "
+
+                    case _:
+                        raise Exception(f"unsupported data type: {field.type}")
+                    
+            
 
         command = command[:-2]  # removing ', ' from command
         command += ");"  # closing the command
         conn = _create_connection(self.db_filename)
         cur = conn.cursor()
-        print(command)
         cur.execute(command)
         conn.close()
 
     def insert(self, *instances_of_dc):
-        var_names = [field.name for field in fields(self.dc) if field.name != 'index']
-        command = f"INSERT INTO {self.dc.__name__} ({','.join(var_names)}) VALUES ({'?,' * len(var_names)}"
-        command = command[:-1]  # strip ','
-        command += ")"
+        if not self.extra_columns:
+            var_names = [field.name for field in fields(self.dc) if field.name != 'index']
+            command = f"INSERT INTO {self.dc.__name__} ({','.join(var_names)}) VALUES ({'?,' * len(var_names)}"
+            command = command[:-1]  # strip ','
+            command += ")"
 
-        val_list = [tuple(getattr(instance, var_name) for var_name in var_names) for instance in instances_of_dc]
+            val_list = [tuple(getattr(instance, var_name) for var_name in var_names) for instance in instances_of_dc]
+
+        if self.extra_columns:
+            var_names = [field.name for field in fields(self.dc)] + list(self.extra_columns.keys())
+            var_names.remove('index')
+            print(var_names)
+            command = f"INSERT INTO {self.dc.__name__} ({','.join(var_names)}) VALUES ({'?,' * len(var_names)}"
+            command = command[:-1]  # strip ','
+            command += ")"
+            val_list = [tuple(getattr(instance, var_name) for var_name in var_names if var_name not in self.extra_columns.keys()) + tuple(extra_columns.values()) for instance,extra_columns in instances_of_dc]
 
         conn = _create_connection(self.db_filename)
         cur = conn.cursor()
@@ -93,12 +125,23 @@ class dctodb:
         fetched = []
         # for each row we will iterate over every column and make sure the correct type in inserted
 
+
+
+        # we also know that if extra.columns, than we need to fetch them in a different dict
         for row in rows:
             args = []
             
             row = list(row)
-            row.append(row.pop(0))  # moving the 'id' side to match the args of dc
             print(row)
+            if self.extra_columns:
+                extra_columns = {
+                    col_name:col_value for col_name, col_value in zip(self.extra_columns.keys(),row[-len(self.extra_columns):])
+                }
+                for _ in range(len(self.extra_columns)):
+                    row.pop()
+                print(extra_columns)
+                
+            row.append(row.pop(0))  # moving the 'id' side to match the args of dc
             for field, col in zip(fields(self.dc), row):
                 if field.type == datetime.datetime:
                     col = col.split('.')[0]
@@ -108,7 +151,10 @@ class dctodb:
 
                 args.append(col)
             
-            fetched.append(self.dc(*args))
+            if self.extra_columns:
+                fetched.append((self.dc(*args), extra_columns))
+            else:
+                fetched.append(self.dc(*args))
 
         return fetched
 
