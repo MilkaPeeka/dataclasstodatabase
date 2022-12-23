@@ -10,6 +10,11 @@ def _create_connection(db_filename):
 
 
 class dctodb:
+    def _get_count(self):
+        conn = _create_connection(self.db_filename)
+        cur = conn.cursor()
+        res = cur.execute(f"SELECT COUNT(*) FROM {self.dc.__name__}").fetchone()[0]
+        return res
     def _create_sub_table(self, dcs_in_class):
             # we will iterate over each item in dcs we have and create a table accordingly, attaching our id
             for dc_in_class in dcs_in_class:
@@ -94,14 +99,43 @@ class dctodb:
         conn.close()
 
     def insert(self, *instances_of_dc):
+        # before any inserting, we need to verify the indexes of our current.
+        curr_items = self._get_count() # because the counting starts from 1, 4 items means than the next item we need to insert is five.
+
+        if self.extra_columns:
+            for instance, dic in instances_of_dc:
+                instance.index = curr_items + 1
+                curr_items += 1
+        else:
+            for instance in instances_of_dc:
+                instance.index = curr_items + 1
+                curr_items += 1
+        # before inserting self, we will call the insert the method of our subclasses
+        if self.dc_in_class_mappings:
+            for instance in instances_of_dc:
+                for field in fields(instance):
+                    if field.type in self.dc_in_class_mappings:
+                        self.dc_in_class_mappings[field.type].insert((getattr(instance, field.name), {self.dc.__name__ + "index":instance.index}))
+                        break
+
+
+
+
         if not self.extra_columns:
-            var_names = [field.name for field in fields(self.dc) if field.name != 'index']
+            var_names = []
+            for field in fields(self.dc):
+                if field.name == "index":
+                    continue
+                if field.type in self.dc_in_class_mappings:
+                    continue
+
+                var_names.append(field.name)
             command = f"INSERT INTO {self.dc.__name__} ({','.join(var_names)}) VALUES ({'?,' * len(var_names)}"
             command = command[:-1]  # strip ','
             command += ")"
 
             val_list = [tuple(getattr(instance, var_name) for var_name in var_names) for instance in instances_of_dc]
-
+            print(val_list)
         if self.extra_columns:
             var_names = [field.name for field in fields(self.dc)] + list(self.extra_columns.keys())
             var_names.remove('index')
@@ -126,9 +160,7 @@ class dctodb:
 
         fetched = []
         # for each row we will iterate over every column and make sure the correct type in inserted
-
-
-
+        
         # we also know that if extra.columns, than we need to fetch them in a different dict
         for row in rows:
             args = []
