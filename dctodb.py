@@ -1,5 +1,5 @@
 import sqlite3
-from dataclasses import fields
+from dataclasses import fields, is_dataclass
 import builtins
 from typing import Type, Any, List, Dict
 import datetime
@@ -10,6 +10,10 @@ def _create_connection(db_filename):
 
 
 class dctodb:
+    def _get_dc_fields(self):
+        return [field.type for field in fields(self.dc) if is_dataclass(field.type)]
+
+
     def _get_count(self):
         conn = _create_connection(self.db_filename)
         cur = conn.cursor()
@@ -19,7 +23,7 @@ class dctodb:
             # we will iterate over each item in dcs we have and create a table accordingly, attaching our id
             for dc_in_class in dcs_in_class:
                 # we will need to create a table to each, with extra column that is the id of self.
-                self.dc_in_class_mappings[dc_in_class] = dctodb(dc_in_class, self.db_filename, None, {self.dc.__name__ + "index": int})
+                self.dc_in_class_mappings[dc_in_class] = dctodb(dc_in_class, self.db_filename, {self.dc.__name__ + "index": int})
 
     def _fetch_from_sub_table(self, self_index, item_to_fetch):
         # will return all the items with matching self_index.
@@ -32,13 +36,14 @@ class dctodb:
             if extra_columns[self.dc.__name__ + "index"] == self_index:
                 return item
 
-    def __init__(self, dc: Type[Any], db_filename: str, dcs_in_class: List[Type[Any]] = None, extra_columns: Dict[str, Any] = None):
+    def __init__(self, dc: Type[Any], db_filename: str, extra_columns: Dict[str, Any] = None):
         self.dc: Type[Any] = dc
         self.db_filename: str = db_filename
         self.dc_in_class_mappings = dict()
         self.extra_columns = extra_columns # won't be returned inside an object but in a dict next to the object
-        if dcs_in_class:
-            self._create_sub_table(dcs_in_class)
+        possible_dcs = self._get_dc_fields()
+        if possible_dcs:
+            self._create_sub_table(possible_dcs)
 
         self.create_table()
 

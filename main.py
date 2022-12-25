@@ -18,7 +18,7 @@ class Test:
 
 if __name__ == "__main__":
     # client_db = dctodb(Client, "client.db", None, {"nameindex": str})
-    test_db = dctodb(Test, "test_db.db", [Client])
+    test_db = dctodb(Test, "test_db.db")
     print(test_db.fetch_all())
 
     # client = Client("Another Client Lol")
