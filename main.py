@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 from dctodb import dctodb
 
+
 @dataclass
 class Client:
     name: str
     index: int = 0
+
 
 @dataclass
 class Test:
@@ -13,7 +15,6 @@ class Test:
     is_adult: bool
     client: Client
     index: int = 0
-
 
 
 if __name__ == "__main__":
