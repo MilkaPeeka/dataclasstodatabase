@@ -21,14 +21,23 @@ class dctodb:
                 # we will need to create a table to each, with extra column that is the id of self.
                 self.dc_in_class_mappings[dc_in_class] = dctodb(dc_in_class, self.db_filename, None, {self.dc.__name__ + "index": int})
 
+    def _fetch_from_sub_table(self, self_index, item_to_fetch):
+        # will return all the items with matching self_index.
+        # obviously that means that we will have to fetch self first    
+        possible_items = self.dc_in_class_mappings[item_to_fetch].fetch_all() # returns a tuple with extra columns: (item, extracolumn:Value)
+        
+        
+        # currently supporting only one item and not lists
+        for item, extra_columns in possible_items:
+            if extra_columns[self.dc.__name__ + "index"] == self_index:
+                return item
 
     def __init__(self, dc: Type[Any], db_filename: str, dcs_in_class: List[Type[Any]] = None, extra_columns: Dict[str, Any] = None):
         self.dc: Type[Any] = dc
         self.db_filename: str = db_filename
-        self.dc_in_class_mappings = None
+        self.dc_in_class_mappings = dict()
         self.extra_columns = extra_columns # won't be returned inside an object but in a dict next to the object
         if dcs_in_class:
-            self.dc_in_class_mappings = dict()
             self._create_sub_table(dcs_in_class)
 
         self.create_table()
@@ -135,11 +144,9 @@ class dctodb:
             command += ")"
 
             val_list = [tuple(getattr(instance, var_name) for var_name in var_names) for instance in instances_of_dc]
-            print(val_list)
         if self.extra_columns:
             var_names = [field.name for field in fields(self.dc)] + list(self.extra_columns.keys())
             var_names.remove('index')
-            print(var_names)
             command = f"INSERT INTO {self.dc.__name__} ({','.join(var_names)}) VALUES ({'?,' * len(var_names)}"
             command = command[:-1]  # strip ','
             command += ")"
@@ -164,32 +171,41 @@ class dctodb:
         # we also know that if extra.columns, than we need to fetch them in a different dict
         for row in rows:
             args = []
-            
+
+            # before checking for extra columns, we need to fetch subtables.
+            # we know that for each row theres an object that needs to be fetched first and assigned
+            # before we continue with that we need a method to fetch one
             row = list(row)
-            print(row)
-            if self.extra_columns:
-                extra_columns = {
-                    col_name:col_value for col_name, col_value in zip(self.extra_columns.keys(),row[-len(self.extra_columns):])
-                }
-                for _ in range(len(self.extra_columns)):
-                    row.pop()
-                print(extra_columns)
+            index = int(row.pop(0))
+
+            for field in fields(self.dc):
+                if field.type in self.dc_in_class_mappings:
+                    args.append(self._fetch_from_sub_table(index, field.type))
+                    continue
                 
-            row.append(row.pop(0))  # moving the 'id' side to match the args of dc
-            for field, col in zip(fields(self.dc), row):
+                if field.name == 'index':
+                    args.append(index)
+                    continue
+                    
                 if field.type == datetime.datetime:
+                    col = row.pop(0)
                     col = col.split('.')[0]
                     col = datetime.datetime.strptime(col, '%Y-%m-%d %H:%M:%S')
-                else:
-                    col = field.type(col)
+                    args.append(col)
+                    continue
 
-                args.append(col)
-            
+                args.append(field.type(row.pop(0)))
+
+            # now if we have extra coulmns we should have more in row, that we return as dict
             if self.extra_columns:
+                extra_columns = {}
+                for col_name, col_type in self.extra_columns.items():
+                    extra_columns[col_name] = col_type(row.pop())
                 fetched.append((self.dc(*args), extra_columns))
+
             else:
                 fetched.append(self.dc(*args))
-
+        
         return fetched
 
     def update(self, find_by_field, *instances_of_dc):
