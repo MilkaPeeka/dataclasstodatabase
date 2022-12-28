@@ -5,14 +5,18 @@ from typing import List
 
 
 @dataclass
-class myMainclass:
-    name: int
-    friends: List[int]
+class backAccounts:
+    owner: str
+    accounts: List[int]
     index: int = 0
 
-hasList_db = dctodb(myMainclass, "Test.db")
+back_accounts_db = dctodb(backAccounts, "Test.db")
 
+bank_account = backAccounts("Yuval", [9983231, 112234, 2343332])
 
+# back_accounts_db.insert_one(bank_account)
+
+print(back_accounts_db.fetch_where('id == 1'))
 
 
 # @dataclass 

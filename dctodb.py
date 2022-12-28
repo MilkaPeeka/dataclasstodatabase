@@ -64,7 +64,7 @@ class dctodb:
         self.dc: Type[Any] = dc
         self.db_filename: str = db_filename
         self.extra_columns = extra_columns  # won't be returned inside an object but in a dict next to the object
-        self.basic_fields, self.dcs_fields, self.list_fields = _split_fields(self.dc)  # only fields that are not dcs or lists
+        self.basic_fields, self.dc_fields, self.list_fields = _split_fields(self.dc)  # only fields that are not dcs or lists
         self.dc_in_class_mappings = dict()
         self.lists_in_class_mappings = dict()
         self._init_sub_class_connections()
@@ -106,29 +106,29 @@ class dctodb:
         conn.close()
         return res
 
-    def _create_sub_conn(self):
+    def _init_sub_class_connections(self):
         """
         Essentially, Before we insert self, we need to create sub-connections to every complicated object we need to store, like sub-dataclasses and lists.
         That connection is creating connection to our sub-dataclasses, however we create extra columns that are not part of the object but rather an identifier to their parent class
-
-        NEED TO ADD SUPPORT FOR: LIST
-
         """
-        # for list_in_class in self.list_fields:
-        #     self.lists_in_class_mappings[list_in_class] = dctodb()
-        for dc_in_class in self.dcs_fields:
+        for dc_in_class in self.dc_fields:
             self.dc_in_class_mappings[dc_in_class] = dctodb(dc_in_class.type, self.db_filename, {self.identifier: int})
         
         for list_in_class in self.list_fields:
             custom_class = self._create_class(list_in_class, get_args(list_in_class.type)[0])
             self.lists_in_class_mappings[list_in_class] = dctodb(custom_class, self.db_filename)
 
-    def _insert_list(self):
-        pass
+    def _insert_list(self, instance):
+        for list_field in self.list_fields:
+            list_of_items = getattr(instance, list_field.name)
+            for item in list_of_items:
+                item_as_obj = self.lists_in_class_mappings[list_field].dc(instance.index, item)
+                self.lists_in_class_mappings[list_field].insert_one(item_as_obj)
+
+
 
     def _insert_dcs(self, instance):
-        sub_dcs = filter(lambda x: is_dataclass(x.type), self.possible_dcs_or_lists)
-        for field in sub_dcs:
+        for field in self.dc_fields:
             instance_dc_value = getattr(instance, field.name)
             self.dc_in_class_mappings[field].insert_one(instance_dc_value, {self.identifier: instance.index})
 
@@ -164,9 +164,17 @@ class dctodb:
 
         if self.dc_in_class_mappings:
             self._insert_dcs(instance)
+        if self.lists_in_class_mappings:
+            self._insert_list(instance)
 
-    def _fetch_lists_from_subtable(self):
-        return dict()
+    def _fetch_lists_from_subtable(self, index):
+        # we know what's the table name, so we will just fetch_where id is the same as ours
+        list_fields_values_mappings = dict()
+        for list_field in self.list_fields:
+            list_items_as_obj = self.lists_in_class_mappings[list_field].fetch_where(f'{self.identifier} == {index}')
+            list_items_as_original_type = [row.item_val for row in list_items_as_obj]
+            list_fields_values_mappings[list_field] = list_items_as_original_type
+        return list_fields_values_mappings
 
     def fetch_where(self, condition) -> List[Tuple[Any, Union[Dict, None]]]:
         """
@@ -191,15 +199,14 @@ class dctodb:
             index = row[0]
             basic_args = row[1:]
             child_dc_values = self._fetch_dcs_from_sub_table(index)
-            list_values = self._fetch_lists_from_subtable()
+            list_values = self._fetch_lists_from_subtable(index)
 
             item = self._build_item_from_values(index, basic_args, child_dc_values, list_values)
             fetched.append(item)
 
         return fetched
 
-    def _build_item_from_values(self, index, basic_args, child_dc_values: Dict = dict(),
-                                child_lists_values: Dict = dict()):
+    def _build_item_from_values(self, index, basic_args, child_dc_values: Dict, child_list_values: Dict):
         """
         We'll iterate over each value and append it into an args and then create an object through it
         """
@@ -211,8 +218,8 @@ class dctodb:
                 args.append(child_dc_values[field])
                 continue
 
-            if field in child_lists_values:
-                args.append(child_dc_values[field])
+            if field in child_list_values:
+                args.append(child_list_values[field])
                 continue
 
             if field.name == "index":
@@ -238,8 +245,7 @@ class dctodb:
         dc_childs = dict()
 
         for dc_field, connector in self.dc_in_class_mappings.items():
-            command = f'{self.identifier} == {self_index}'
-            dc_childs[dc_field] = connector.fetch_where(command)[0]
+            dc_childs[dc_field] = connector.fetch_where(f'{self.identifier} == {self_index}')[0]
 
         return dc_childs
 
