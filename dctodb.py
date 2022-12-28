@@ -67,7 +67,7 @@ class dctodb:
         self.basic_fields, self.dcs_fields, self.list_fields = _split_fields(self.dc)  # only fields that are not dcs or lists
         self.dc_in_class_mappings = dict()
         self.lists_in_class_mappings = dict()
-        self._create_sub_conn()
+        self._init_sub_class_connections()
 
         self.create_table()
 
