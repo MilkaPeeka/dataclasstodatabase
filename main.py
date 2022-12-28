@@ -3,16 +3,20 @@ import datetime
 from dctodb import dctodb
 from typing import List
 
-
+@dataclass
+class BankPair:
+    name: str
+    value: int
+    index: int = 0
 @dataclass
 class backAccounts:
     owner: str
-    accounts: List[int]
+    accounts: List[BankPair]
     index: int = 0
 
 back_accounts_db = dctodb(backAccounts, "Test.db")
 
-bank_account = backAccounts("Yuval", [9983231, 112234, 2343332])
+bank_account = backAccounts("Yuval", [BankPair("mainBank", 1243333), BankPair("secondAccount", 9938234), BankPair("secretBank", -9999)])
 
 # back_accounts_db.insert_one(bank_account)
 
