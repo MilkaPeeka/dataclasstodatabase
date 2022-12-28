@@ -1,20 +1,16 @@
-from dataclasses import dataclass, make_dataclass, fields
+from dataclasses import dataclass
 import datetime
 from dctodb import dctodb
-from typing import List, Type
+from typing import List
 
 
-def create_class(parent_class_name, item_type: Type):
-    cls_name = parent_class_name + item_type.__name__ + "List"
-    return make_dataclass(cls_name,
-                          [('item_val', item_type), ('index',int,0)])
+@dataclass
+class myMainclass:
+    name: int
+    friends: List[int]
+    index: int = 0
 
-
-lis = list[int]
-
-int_lis_dc = create_class("list", int)
-print(fields(int_lis_dc(4)))
-
+hasList_db = dctodb(myMainclass, "Test.db")
 
 
 

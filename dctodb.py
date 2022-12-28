@@ -1,7 +1,7 @@
 import sqlite3
 from dataclasses import fields, is_dataclass, make_dataclass
 import builtins
-from typing import Type, Any, Dict, Tuple, Union, List
+from typing import Type, Any, Dict, Tuple, Union, List, get_args, get_origin
 import datetime
 
 
@@ -17,7 +17,7 @@ def _split_fields(dc) -> Tuple[List[Any]]:
         if is_dataclass(field.type):
             dc_fields.append(field)
 
-        elif isinstance(field.type, list):
+        elif get_origin(field.type) == list:
             list_fields.append(field)
 
         else:
@@ -50,23 +50,21 @@ def _sql_represent(name, type) -> str:
             raise Exception(f"Unrecognized type: {type}")
 
 
-"""
-helper class to store lists
-"""
-
-
-def create_class(parent_class_name, item_type: Type):
-    cls_name = parent_class_name + item_type.__name__ + "List"
-    return make_dataclass(cls_name,
-                          [('item_val', item_type), ('index',int,0)])
-
 class dctodb:
+    """
+    helper class to store lists
+    """
+    def _create_class(self, field, item_type: Type):
+        cls_name = self.dc.__name__ + field.name.capitalize() + "List"
+        return make_dataclass(cls_name,
+                          [(self.identifier, str), ('item_val', item_type),('index',int,0)])
+
+
     def __init__(self, dc: Type[Any], db_filename: str, extra_columns: Dict[str, Any] = dict()):
         self.dc: Type[Any] = dc
         self.db_filename: str = db_filename
         self.extra_columns = extra_columns  # won't be returned inside an object but in a dict next to the object
-        self.basic_fields, self.dcs_fields, self.list_fields = _split_fields(
-            self.dc)  # only fields that are not dcs or lists
+        self.basic_fields, self.dcs_fields, self.list_fields = _split_fields(self.dc)  # only fields that are not dcs or lists
         self.dc_in_class_mappings = dict()
         self.lists_in_class_mappings = dict()
         self._create_sub_conn()
@@ -116,10 +114,14 @@ class dctodb:
         NEED TO ADD SUPPORT FOR: LIST
 
         """
-        for list_in_class in self.list_fields:
-            self.lists_in_class_mappings[list_in_class] = dctodb()
-        for dc_in_class in dcs_or_classes_in_class:
+        # for list_in_class in self.list_fields:
+        #     self.lists_in_class_mappings[list_in_class] = dctodb()
+        for dc_in_class in self.dcs_fields:
             self.dc_in_class_mappings[dc_in_class] = dctodb(dc_in_class.type, self.db_filename, {self.identifier: int})
+        
+        for list_in_class in self.list_fields:
+            custom_class = self._create_class(list_in_class, get_args(list_in_class.type)[0])
+            self.lists_in_class_mappings[list_in_class] = dctodb(custom_class, self.db_filename)
 
     def _insert_list(self):
         pass
