@@ -1,25 +1,30 @@
 import sqlite3
-from dataclasses import fields, is_dataclass
+from dataclasses import fields, is_dataclass, make_dataclass
 import builtins
 from typing import Type, Any, Dict, Tuple, Union, List
 import datetime
 
+
 def _create_connection(db_filename) -> sqlite3.Connection:
     return sqlite3.connect(db_filename)
 
+
 def _split_fields(dc) -> Tuple[List[Any]]:
     basic_fields = []
-    either_dc_or_list_fields = []
+    dc_fields = []
+    list_fields = []
     for field in fields(dc):
         if is_dataclass(field.type):
-            either_dc_or_list_fields.append(field)
-            continue
-        if isinstance(field.type, list):
-            either_dc_or_list_fields.append(field)
-            continue
+            dc_fields.append(field)
 
-        basic_fields.append(field)
-    return basic_fields, either_dc_or_list_fields
+        elif isinstance(field.type, list):
+            list_fields.append(field)
+
+        else:
+            basic_fields.append(field)
+
+    return basic_fields, dc_fields, list_fields
+
 
 def _sql_represent(name, type) -> str:
     match type:
@@ -44,17 +49,40 @@ def _sql_represent(name, type) -> str:
         case _:
             raise Exception(f"Unrecognized type: {type}")
 
+
+"""
+helper class to store lists
+"""
+
+
+def create_class(parent_class_name, item_type: Type):
+    cls_name = parent_class_name + item_type.__name__ + "List"
+    return make_dataclass(cls_name,
+                          [('item_val', item_type), ('index',int,0)])
+
 class dctodb:
+    def __init__(self, dc: Type[Any], db_filename: str, extra_columns: Dict[str, Any] = dict()):
+        self.dc: Type[Any] = dc
+        self.db_filename: str = db_filename
+        self.extra_columns = extra_columns  # won't be returned inside an object but in a dict next to the object
+        self.basic_fields, self.dcs_fields, self.list_fields = _split_fields(
+            self.dc)  # only fields that are not dcs or lists
+        self.dc_in_class_mappings = dict()
+        self.lists_in_class_mappings = dict()
+        self._create_sub_conn()
+
+        self.create_table()
+
     @property
     def table_name(self) -> str:
         return self.dc.__name__
-    
+
     # a way for our childs to recognize us
     @property
     def identifier(self) -> str:
         return self.dc.__name__ + "index"
 
-    def _execute(self, command, args = None):
+    def _execute(self, command, args=None):
         conn = _create_connection(self.db_filename)
         cur = conn.cursor()
         if args:
@@ -64,22 +92,11 @@ class dctodb:
 
         return res, conn
 
-
-    def __init__(self, dc: Type[Any], db_filename: str, extra_columns: Dict[str, Any] = dict()):
-        self.dc: Type[Any] = dc
-        self.db_filename: str = db_filename
-        self.extra_columns = extra_columns  # won't be returned inside an object but in a dict next to the object
-        self.basic_fields, self.possible_dcs_or_lists = _split_fields(self.dc) # only fields that are not dcs or lists
-        self.dc_in_class_mappings = dict()
-        if self.possible_dcs_or_lists:
-            self._create_sub_conn(self.possible_dcs_or_lists)
-        
-        self.create_table()
-
     def create_table(self):
         command = "CREATE TABLE IF NOT EXISTS {} (id integer PRIMARY KEY AUTOINCREMENT, {});"
         # might remove index from basic_fields but unsure
-        args = [_sql_represent(field.name, field.type) for field in self.basic_fields if field.name != 'index'] + [_sql_represent(col_name, col_type) for col_name, col_type in self.extra_columns.items()]
+        args = [_sql_represent(field.name, field.type) for field in self.basic_fields if field.name != 'index'] + [
+            _sql_represent(col_name, col_type) for col_name, col_type in self.extra_columns.items()]
         args = ', '.join(args)
         command = command.format(self.table_name, args)
         _, conn = self._execute(command)
@@ -91,7 +108,7 @@ class dctodb:
         conn.close()
         return res
 
-    def _create_sub_conn(self, dcs_or_classes_in_class):
+    def _create_sub_conn(self):
         """
         Essentially, Before we insert self, we need to create sub-connections to every complicated object we need to store, like sub-dataclasses and lists.
         That connection is creating connection to our sub-dataclasses, however we create extra columns that are not part of the object but rather an identifier to their parent class
@@ -99,9 +116,10 @@ class dctodb:
         NEED TO ADD SUPPORT FOR: LIST
 
         """
+        for list_in_class in self.list_fields:
+            self.lists_in_class_mappings[list_in_class] = dctodb()
         for dc_in_class in dcs_or_classes_in_class:
             self.dc_in_class_mappings[dc_in_class] = dctodb(dc_in_class.type, self.db_filename, {self.identifier: int})
-
 
     def _insert_list(self):
         pass
@@ -110,9 +128,8 @@ class dctodb:
         sub_dcs = filter(lambda x: is_dataclass(x.type), self.possible_dcs_or_lists)
         for field in sub_dcs:
             instance_dc_value = getattr(instance, field.name)
-            self.dc_in_class_mappings[field].insert_one(instance_dc_value,{self.identifier:instance.index})
+            self.dc_in_class_mappings[field].insert_one(instance_dc_value, {self.identifier: instance.index})
 
-    
     def insert_many(self, *instances):
         """
         Mega function that consists of multiple child functions.
@@ -120,8 +137,6 @@ class dctodb:
         2. We will insert ourselves, MEANWHILE updating our indexes as fitted in the db itself.
         
         """
-
-
 
     def insert_one(self, instance, extra_columns: Dict[str, Any] = dict()):
         """
@@ -147,7 +162,7 @@ class dctodb:
 
         if self.dc_in_class_mappings:
             self._insert_dcs(instance)
-        
+
     def _fetch_lists_from_subtable(self):
         return dict()
 
@@ -173,14 +188,16 @@ class dctodb:
         for row in rows:
             index = row[0]
             basic_args = row[1:]
-            child_dc_values = self._fetch_dcs_from_sub_table(index) 
+            child_dc_values = self._fetch_dcs_from_sub_table(index)
             list_values = self._fetch_lists_from_subtable()
 
-            item = self._build_item_from_values(index, basic_args, child_dc_values,)
+            item = self._build_item_from_values(index, basic_args, child_dc_values, list_values)
             fetched.append(item)
-        
+
         return fetched
-    def _build_item_from_values(self, index, basic_args, child_dc_values : Dict = dict(), child_lists_values: Dict = dict()):
+
+    def _build_item_from_values(self, index, basic_args, child_dc_values: Dict = dict(),
+                                child_lists_values: Dict = dict()):
         """
         We'll iterate over each value and append it into an args and then create an object through it
         """
@@ -207,12 +224,10 @@ class dctodb:
                 args.append(date)
                 continue
 
-            
             args.append(field.type(basic_args.pop(0)))
-        
+
         return self.dc(*args)
 
-    
     def _fetch_dcs_from_sub_table(self, self_index) -> Dict:
         """
         We will fetch every sub-item using our self.index.
@@ -225,7 +240,6 @@ class dctodb:
             dc_childs[dc_field] = connector.fetch_where(command)[0]
 
         return dc_childs
-
 
     # def update(self, find_by_field, *instances_of_dc):
     #     var_names = [field.name for field in fields(self.dc) if field.name != "index"]
